@@ -21,22 +21,6 @@ postcard_storage = {}
 openai.api_base = "https://openrouter.ai/api/v1"
 openai.api_key = "<OPENROUTER_API_KEY>"
 
-def get_llama_response(prompt: str):
-    try:
-        # Make the API request to the Llama model
-        response = openai.ChatCompletion.create(
-            model="meta-llama/llama-3.2-1b-instruct:free",
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        # Extract and return the response
-        reply = response.choices[0].message["content"]
-        return reply
-
-    except Exception as e:
-        return f"An error occurred: {str(e)}"
-
-
 def get_cat():
   url = "https://api.thecatapi.com/v1/images/search"
   cat_api_key = os.environ['CATAPIKEY']
