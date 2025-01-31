@@ -7,7 +7,7 @@ import random
 from eight_ball_answers import eight_ball_answers
 import asyncio
 import time
-import openai
+import json
 from keep_alive import keep_alive
 
 # Set intents
@@ -18,8 +18,35 @@ intents.message_content = True
 # Initialize bot
 bot = commands.Bot(command_prefix=';', intents=intents)
 postcard_storage = {}
-openai.api_base = "https://openrouter.ai/api/v1"
-openai.api_key = "<OPENROUTER_API_KEY>"
+
+def query_deepseek_v3(input_text: str, api_key: str) -> str:
+    """
+    Sends an input to the deepseek-v3 model and returns the output.
+
+    :param input_text: The input query string.
+    :param api_key: Your AIMLAPI.com API key.
+    :return: The response from deepseek-v3.
+    """
+    url = "https://api.aimlapi.com/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": "deepseek-v3",
+        "messages": [
+            {"role": "user", "content": input_text}
+        ]
+    }
+
+    response = requests.post(url, headers=headers, data=json.dumps(payload))
+
+    if response.status_code == 200:
+        response_data = response.json()
+        return response_data.get("choices", [{}])[0].get("message", {}).get("content", "No response received.")
+    else:
+        return f"Error: {response.status_code}, {response.text}"
+
 
 def get_cat():
   url = "https://api.thecatapi.com/v1/images/search"
