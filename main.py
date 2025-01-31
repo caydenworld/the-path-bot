@@ -90,6 +90,13 @@ async def modsetup(ctx):
 @bot.command()
 async def riggedcoinflip(ctx): 
     await ctx.send('Heads')
+
+@bot.command()
+async def ai(ctx): 
+    user_input = await bot.wait_for("message")
+    AI_API_KEY = os.environ('AI_API_KEY')  # Replace with your actual API key
+    result = query_deepseek_v3(user_input, api_key)
+    await ctx.send("ThePath Response:", result)
     
 
 @bot.command()
