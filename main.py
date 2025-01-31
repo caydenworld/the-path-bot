@@ -8,7 +8,9 @@ from eight_ball_answers import eight_ball_answers
 import asyncio
 import time
 import json
-from keep_alive import keep_alive
+
+
+
 
 # Set intents
 intents = discord.Intents.default()
@@ -290,5 +292,4 @@ async def helpcommand(ctx, command_name=None):
         await ctx.send(
             f"**Available Commands:**\n{commands_list}\n\nType `;helpcommand <command_name>` for more details about a specific command."
         )
-keep_alive()
 bot.run(os.getenv('DISCORD_TOKEN'))
