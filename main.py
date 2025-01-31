@@ -8,8 +8,10 @@ from eight_ball_answers import eight_ball_answers
 import asyncio
 import time
 import json
+from openai import OpenAI
 
 
+CACHE_FILE = "ai_cache.json"
 
 
 # Set intents
@@ -21,33 +23,44 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=';', intents=intents)
 postcard_storage = {}
 
-def query_deepseek_v3(input_text: str, api_key: str) -> str:
-    """
-    Sends an input to the deepseek-v3 model and returns the output.
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as file:
+            return json.load(file)
+    return {}
 
-    :param input_text: The input query string.
-    :param api_key: Your AIMLAPI.com API key.
-    :return: The response from deepseek-v3.
-    """
-    url = "https://api.aimlapi.com/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    payload = {
-        "model": "deepseek-v3",
-        "messages": [
-            {"role": "user", "content": input_text}
-        ]
-    }
+# Save the cache to the file
+def save_cache(cache):
+    with open(CACHE_FILE, "w") as file:
+        json.dump(cache, file)
 
-    response = requests.post(url, headers=headers, data=json.dumps(payload))
+# Load the cache when the bot starts
+response_cache = load_cache()
 
-    if response.status_code == 200:
-        response_data = response.json()
-        return response_data.get("choices", [{}])[0].get("message", {}).get("content", "No response received.")
-    else:
-        return f"Error: {response.status_code}, {response.text}"
+def get_ai(user_input: str):
+    base_url = "https://api.aimlapi.com/v1"
+    api_key = os.getenv('AI_API_KEY')
+    system_prompt = "You are named 'The Path'"
+
+    api = OpenAI(api_key=api_key, base_url=base_url)
+    MAX_MESSAGE_LENGTH = 232
+
+    # Truncate user input if it's too long
+    if len(user_input) > MAX_MESSAGE_LENGTH:
+        user_input = user_input[:MAX_MESSAGE_LENGTH]
+
+    completion = api.chat.completions.create(
+        model="deepseek-ai/deepseek-llm-67b-chat",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_input},
+        ],
+        temperature=0.7,
+        max_tokens=255,
+    )
+
+    response = completion.choices[0].message.content
+    return response  # Ensure this returns a string
 
 
 def get_cat():
@@ -69,10 +82,10 @@ async def on_ready():
         channel = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
 
         if channel:
-            await channel.send("**HI!**\n I'm **The Path**, an open source discord bot for traveling servers. To begin, run the ;modsetup command. My prefix is ; . Have fun using this bot. \n For more information, run ;helpcommand")  # Sends the message to the first available channel
+            await channel.send("h")  # Sends the message to the first available channel
         else:
             print(f"No text channels where the bot can send messages in guild '{guild.name}'!")
-    
+
 
 @bot.command()
 async def modsetup(ctx):
@@ -94,12 +107,37 @@ async def riggedcoinflip(ctx):
     await ctx.send('Heads')
 
 @bot.command()
-async def ai(ctx): 
-    user_input = await bot.wait_for("message")
-    AI_API_KEY = os.environ('AI_API_KEY')  # Replace with your actual API key
-    result = query_deepseek_v3(user_input, api_key)
-    await ctx.send("ThePath Response:", result)
-    
+async def ai(ctx, *, user_input: str):
+    # Check if the response is already cached
+    if user_input in response_cache:
+        response = response_cache[user_input]
+    else:
+        try:
+            # Get AI response from the get_ai function
+            response = get_ai(user_input)
+
+            # Cache the response for future use
+            response_cache[user_input] = response
+
+            # Save the updated cache to the file
+            save_cache(response_cache)
+
+        except Exception as e:
+            # Check if it's a rate limit error (Error code: 429)
+            website = os.getenv('Website')
+            if "429" in str(e):
+                await ctx.send(f"Sorry, we've hit the rate limit for the AI API. To help increase this limit, [Buy us a Coffee!]({website})")
+                # Log the error for debugging
+                print(f"Rate limit error: {e}")
+            else:
+                # For other errors, simply send an error message
+                await ctx.send(f"An error occurred: {e}")
+                return
+
+    # Send the AI response in the original channel
+    await ctx.send(response)
+
+
 
 @bot.command()
 async def magic8ball(ctx):
