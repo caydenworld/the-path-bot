@@ -37,6 +37,31 @@ def save_cache(cache):
 # Load the cache when the bot starts
 response_cache = load_cache()
 
+def get_pixabay_image(query):
+    params = {
+        'key': PIXABAY_API_KEY,
+        'q': query,
+        'image_type': 'photo',
+        'orientation': 'horizontal',
+        'per_page': 5  # You can adjust the number of results to return
+    }
+    
+    try:
+        response = requests.get(PIXABAY_URL, params=params)
+        data = response.json()
+        
+        # If we got results from Pixabay
+        if data['totalHits'] > 0:
+            # Randomly pick an image from the results
+            image = random.choice(data['hits'])
+            return image['webformatURL']
+        else:
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching image: {e}")
+        return None
+
+
 def get_ai(user_input: str):
     base_url = "https://api.aimlapi.com/v1"
     api_key = os.getenv('AI_API_KEY')
