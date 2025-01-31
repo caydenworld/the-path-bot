@@ -38,6 +38,8 @@ def save_cache(cache):
 response_cache = load_cache()
 
 def get_pixabay_image(query):
+    PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY')
+    PIXABAY_URL = "https://pixabay.com/api/"
     params = {
         'key': PIXABAY_API_KEY,
         'q': query,
@@ -45,11 +47,11 @@ def get_pixabay_image(query):
         'orientation': 'horizontal',
         'per_page': 5  # You can adjust the number of results to return
     }
-    
+
     try:
         response = requests.get(PIXABAY_URL, params=params)
         data = response.json()
-        
+
         # If we got results from Pixabay
         if data['totalHits'] > 0:
             # Randomly pick an image from the results
@@ -130,6 +132,9 @@ async def modsetup(ctx):
 @bot.command()
 async def riggedcoinflip(ctx): 
     await ctx.send('Heads')
+@bot.command()
+async def image(ctx,*, query): 
+    await ctx.send(get_pixabay_image(query))
 
 @bot.command()
 async def ai(ctx, *, user_input: str):
