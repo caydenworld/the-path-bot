@@ -1,18 +1,17 @@
 import discord
 import os
 from discord.ext import commands
-from replit import db
 import requests
 import random
-from eight_ball_answers import eight_ball_answers
 import asyncio
-import time
 import json
+import time
 from openai import OpenAI
+from eight_ball_answers import eight_ball_answers
 
-
+# Files for storage
 CACHE_FILE = "ai_cache.json"
-
+POSTCARD_FILE = "postcards.json"
 
 # Set intents
 intents = discord.Intents.default()
@@ -21,21 +20,85 @@ intents.message_content = True
 
 # Initialize bot
 bot = commands.Bot(command_prefix=';', intents=intents)
-postcard_storage = {}
 
 def load_cache():
+    """Load AI response cache from a JSON file"""
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r") as file:
             return json.load(file)
     return {}
 
-# Save the cache to the file
 def save_cache(cache):
+    """Save AI response cache to a JSON file"""
     with open(CACHE_FILE, "w") as file:
         json.dump(cache, file)
 
+def load_postcards():
+    """Load postcards data from a JSON file"""
+    if os.path.exists(POSTCARD_FILE):
+        with open(POSTCARD_FILE, "r") as file:
+            return json.load(file)
+    return {}
+
+def save_postcards(postcards):
+    """Save postcards data to a JSON file"""
+    with open(POSTCARD_FILE, "w") as file:
+        json.dump(postcards, file)
+
 # Load the cache when the bot starts
 response_cache = load_cache()
+
+# Load postcard storage from JSON
+postcard_storage = load_postcards()
+
+def get_random_gif(search_term: str, apikey: str, ckey: str, limit: int = 8):
+    """
+    Returns a random GIF URL based on a search term using the Tenor API.
+
+    Args:
+        search_term (str): The search term to find GIFs (e.g., "excited").
+        apikey (str): Your Tenor API key.
+        ckey (str): Your client key for Tenor.
+        limit (int): The number of results to fetch (default is 8).
+
+    Returns:
+        str: URL of a random GIF or None if the request failed.
+    """
+    # Make the request to the Tenor API
+    r = requests.get(
+        f"https://tenor.googleapis.com/v2/search?q={search_term}&key={apikey}&client_key={ckey}&limit={limit}"
+    )
+
+    if r.status_code == 200:
+        # Load the GIFs using the urls for the smaller GIF sizes
+        top_gifs = json.loads(r.content)
+
+        # Debugging: Print out the top_gifs to inspect the structure
+        print(json.dumps(top_gifs, indent=4))  # This will print the response in a readable format
+
+        # Check if there are results and the 'media_formats' key is in each result
+        if 'results' in top_gifs:
+            gifs = top_gifs['results']
+
+            # Filter out results that don't have 'media_formats' or 'gif' format
+            valid_gifs = [gif for gif in gifs if 'media_formats' in gif and 'gif' in gif['media_formats']]
+
+            if valid_gifs:
+                # Randomly select a valid GIF and return its GIF URL
+                random_gif = random.choice(valid_gifs)
+                gif_url = random_gif['media_formats']['gif']['url']
+
+                # Ensure the URL is not too long
+                if len(gif_url) <= 2000:  # Discord allows up to 2000 characters
+                    return gif_url
+                else:
+                    return "Error: The GIF URL is too long."
+    return "No GIFs found or error occurred."
+
+# Example usage:
+search_term = "excited"  # You can change this to any search term
+gif_url = get_random_gif(search_term, apikey="YOUR_API_KEY", ckey="my_test_app")
+print(gif_url)  # This will print the URL of the GIF to be sent to Discord
 
 def get_pixabay_image(query):
     PIXABAY_API_KEY = os.getenv('PIXABAY_API_KEY')
@@ -91,14 +154,24 @@ def get_ai(user_input: str):
 
 
 def get_cat():
-  url = "https://api.thecatapi.com/v1/images/search"
-  cat_api_key = os.environ['CATAPIKEY']
-  headers = {'x-api-key': cat_api_key}
+    url = "https://api.thecatapi.com/v1/images/search"
+    cat_api_key = os.environ['CATAPIKEY']
+    headers = {'x-api-key': cat_api_key}
 
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.json()[0]['url']
 
-  response = requests.get(url, headers=headers)
-  if response.status_code == 200: 
-    return response.json()[0]['url']
+@bot.event
+async def on_member_join(member):
+    for guild in bot.guilds:
+        # Try to find the first available text channel in the guild
+        channel = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
+
+        if channel:
+            await channel.send(f"Welcome {member.mention} to {member.guild.name}! We hope you have a great time here! 🎉")  # Sends the message to the first available channel
+        else:
+            print(f"No text channels where the bot can send messages in guild '{guild.name}'!")
 
 @bot.event
 async def on_ready():
@@ -130,11 +203,20 @@ async def modsetup(ctx):
 
 
 @bot.command()
-async def riggedcoinflip(ctx): 
+async def riggedcoinflip(ctx):
     await ctx.send('Heads')
+
+
 @bot.command()
 async def image(ctx,*, query): 
     await ctx.send(get_pixabay_image(query))
+
+@bot.command()
+async def gif(ctx,*, query): 
+    tenorapikey = os.getenv('TENOR_API')
+    clientkey = "The_Path"
+    await ctx.send(get_random_gif(query, tenorapikey, clientkey))
+
 
 @bot.command()
 async def ai(ctx, *, user_input: str):
@@ -168,13 +250,12 @@ async def ai(ctx, *, user_input: str):
     await ctx.send(response)
 
 
-
 @bot.command()
 async def magic8ball(ctx):
     await ctx.send(random.choice(eight_ball_answers))
 
 
-@bot.command ()
+@bot.command()
 async def coinflip(ctx):
     chance = random.randint(1, 2)
     if chance == 1:
@@ -183,7 +264,7 @@ async def coinflip(ctx):
         await ctx.send("Tails")
 
 
-@bot.command ()
+@bot.command()
 async def choice(ctx):
     chance = random.randint(1, 2)
     if chance == 1:
@@ -191,7 +272,7 @@ async def choice(ctx):
     else:
         await ctx.send("No")
 
-@bot.command ()
+@bot.command()
 async def choice2(ctx):
     chance = random.randint(1, 3)
     if chance == 1:
@@ -201,18 +282,23 @@ async def choice2(ctx):
     else:
         await ctx.send("Maybe")
 
-@bot.command ()
+@bot.command()
 async def magic(ctx):
     await ctx.send("Aberacadabera, You're a Camera!")
-@bot.command ()
+
+
+@bot.command()
 async def cat(ctx):
     await ctx.reply(get_cat())
-@bot.command ()
+
+
+@bot.command()
 async def arebirdsreal(ctx):
     await ctx.send("No.")
     msg = await bot.wait_for("message")
     if msg.content.lower() == "really?":
         await ctx.send("Yes, of course they're real.")
+
 
 @bot.command()
 async def languages(ctx):
@@ -239,125 +325,54 @@ async def sendpostcard(ctx, recipient: discord.User, *, message=None):
     if not message:
         message = random.choice(random_postcards)
 
-    # Store the postcard for the recipient
-    postcard_storage[recipient.id] = message
+    # Append the "from" message at the end of the postcard
+    from_message = f"\n\nFrom: {ctx.author.name} ({ctx.author.mention})"
+
+    # Final postcard message
+    final_message = message + from_message
+
+    # If the recipient already has postcards, append to the list, otherwise create a new list
+    if recipient.id not in postcard_storage:
+        postcard_storage[recipient.id] = []
+
+    # Append the new postcard message to the recipient's list
+    postcard_storage[recipient.id].append(final_message)
+
+    # Save the updated postcards to the JSON file
+    save_postcards(postcard_storage)
 
     # Notify the recipient via DM
     try:
-        await recipient.send(f"📬 You've received a postcard from {ctx.author.name} ({ctx.author.mention})! Use `;openpostcard` to view it. 🎉")
+        await recipient.send(f"📬 You've received a new postcard from {ctx.author.name} ({ctx.author.mention})! Use `;openpostcard` to view your postcards. 🎉")
         await ctx.send(f"✅ Postcard sent to {recipient.mention}!")
     except discord.Forbidden:
         await ctx.send(f"❌ Could not send a DM to {recipient.mention}. Please make sure their DMs are open.")
 
+
 @bot.command(name="openpostcard")
 async def openpostcard(ctx):
     """
-    Allows a recipient to view their postcard.
+    Allows a recipient to view their postcards.
     """
-    # Check if the user has a postcard stored
-    if ctx.author.id in postcard_storage:
-        message = postcard_storage[ctx.author.id]
-        await ctx.message.reply(f"🌍 Here’s your postcard from {ctx.author.name} ({ctx.author.mention}):\n\n{message}")
-        # Remove the postcard after it's opened
+    # Check if the user has any postcards stored
+    if ctx.author.id in postcard_storage and postcard_storage[ctx.author.id]:
+        # Retrieve the list of postcards
+        messages = postcard_storage[ctx.author.id]
+
+        # Construct the message to send all postcards
+        response = "🌍 Here are your postcards:\n"
+        for index, message in enumerate(messages, start=1):
+            response += f"**Postcard {index}:** {message}\n"
+
+        # Send the postcards
+        await ctx.message.reply(response)
+
         del postcard_storage[ctx.author.id]
+    
+        # Save the updated postcards to the JSON file after deletion
+        save_postcards(postcard_storage)
     else:
         await ctx.send("❌ You don’t have any postcards to open!")
 
 
-
-@bot.command()
-async def trivia(ctx):
-    url = "https://opentdb.com/api.php?amount=1&category=22"  # Category 22 is Geography
-    response = requests.get(url).json()
-    question = response["results"][0]["question"]
-    correct_answer = response["results"][0]["correct_answer"]
-
-    await ctx.send(f"🌍 Trivia Question: {question}")
-
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel
-
-    msg = await bot.wait_for("message", check=check)
-    if msg.content.lower() == correct_answer.lower():
-        await ctx.send("🎉 Correct!")
-    else:
-        await ctx.send(
-            f"❌ Incorrect. The correct answer was: {correct_answer}.")
-
-
-@bot.command()
-async def translate(ctx, target_lang: str, *, phrase: str):
-    """
-    Translate a given phrase into the specified target language using Lingva Translate.
-    Usage: /translate <target_language_code> <phrase>
-    Example: /translate es Hello, how are you?
-    """
-    # Lingva Translate API URL (replace "en" with source language if needed)
-    source_lang = "en"  # Default source language is English
-    api_url = f"https://lingva.ml/api/v1/{source_lang}/{target_lang}/{phrase}"
-
-    try:
-        # Make a GET request to Lingva Translate
-        response = requests.get(api_url)
-        response.raise_for_status()  # Raise an error for non-200 responses
-
-        # Parse the JSON response
-        data = response.json()
-        translated_text = data.get("translation")
-
-        # Check if translation was successful
-        if translated_text:
-            await ctx.send(f"🗣️ Translated to {target_lang}: {translated_text}"
-                           )
-        else:
-            await ctx.send(
-                "❌ Translation failed. Please check your input and try again.")
-        if response.status_code == 404:
-            await ctx.send(
-                "❌ Unsupported language or invalid input. Please check your language code."
-            )
-    except requests.exceptions.RequestException as e:
-        # Handle request errors
-        await ctx.send(
-            f"❌ An error occurred while connecting to the translation service: {str(e)}"
-        )
-
-@bot.command() 
-async def helpcommand(ctx, command_name=None):
-    """
-    Provides a list of all commands or details about a specific command.
-    Usage: ;helpcommand [command_name]
-    """
-    commands_info = {
-        "modsetup": "Sets up the bot in the server by creating necessary channels. Requires 'Manage Channels' permission.",
-        "riggedcoinflip": "Flips a coin that always lands on heads. No additional inputs required.",
-        "magic8ball": "Ask the 8-ball a question, and it will give you a random answer. No inputs required.",
-        "coinflip": "Flips a coin and randomly returns 'Heads' or 'Tails'. No inputs required.",
-        "choice": "Randomly chooses between 'Yes' or 'No'. No inputs required.",
-        "choice2": "Randomly chooses between 'Yes', 'No', or 'Maybe'. No inputs required.",
-        "magic": "Sends a magical phrase to lighten the mood! No inputs required.",
-        "arebirdsreal": "Debates whether birds are real. Type 'Really?' after the bot's response for a fun continuation!",
-        "languages": "Lists all languages supported by the translation feature.",
-        "sendpostcard": "Send a virtual postcard to another user. Usage: ;sendpostcard @username [custom message]. If no custom message is provided, a random one is sent.",
-        "openpostcard": "Opens a postcard you've received. No additional inputs required.",
-        "trivia": "Ask a geography trivia question. Respond in chat to answer!",
-        "translate": "Translate a phrase into another language using Lingva Translate. Usage: ;translate <language_code> <phrase>.",
-        "report": "Report a message to the moderators. Usage: ;report. You will be prompted to provide a reason, and the report will be sent to the 'path mod logs' channel."
-    }
-
-    if command_name:
-        # Provide details about a specific command
-        command_info = commands_info.get(command_name.lower())
-        if command_info:
-            await ctx.send(f"**;{command_name}**: {command_info}")
-        else:
-            await ctx.send(
-                f"❌ Command `{command_name}` not found. Use `;helpcommand` to see all commands."
-            )
-    else:
-        # List all available commands
-        commands_list = "\n".join([f"- **;{cmd}**" for cmd in commands_info.keys()])
-        await ctx.send(
-            f"**Available Commands:**\n{commands_list}\n\nType `;helpcommand <command_name>` for more details about a specific command."
-        )
 bot.run(os.getenv('DISCORD_TOKEN'))
