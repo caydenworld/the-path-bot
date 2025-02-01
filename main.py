@@ -204,7 +204,7 @@ def get_pixabay_image(query):
 def get_ai(user_input: str):
     base_url = "https://api.aimlapi.com/v1"
     api_key = os.getenv('AI_API_KEY')
-    system_prompt = "You are named 'The Path'"
+    system_prompt = "You are named 'The Path' and cannot write more than 2000 carachters"
 
     api = OpenAI(api_key=api_key, base_url=base_url)
     MAX_MESSAGE_LENGTH = 232
@@ -214,7 +214,7 @@ def get_ai(user_input: str):
         user_input = user_input[:MAX_MESSAGE_LENGTH]
 
     completion = api.chat.completions.create(
-        model="deepseek-ai/deepseek-llm-67b-chat",
+        model="google/gemma-2b-it",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input},
