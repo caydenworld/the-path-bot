@@ -21,6 +21,50 @@ intents.message_content = True
 # Initialize bot
 bot = commands.Bot(command_prefix=';', intents=intents)
 
+def load_currency():
+    try:
+        with open("currency.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+# Save currency data
+def save_currency(data):
+    with open("currency.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+# Get user balance (per server)
+def get_balance(guild_id, user_id):
+    data = load_currency()
+    return data.get(str(guild_id), {}).get(str(user_id), 0)
+
+# Add money to a user (per server)
+def add_money(guild_id, user_id, amount):
+    data = load_currency()
+    guild_id = str(guild_id)
+    user_id = str(user_id)
+
+    if guild_id not in data:
+        data[guild_id] = {}
+    if user_id not in data[guild_id]:
+        data[guild_id][user_id] = 0
+
+    data[guild_id][user_id] += amount
+    save_currency(data)
+
+# Remove money from a user (per server)
+def remove_money(guild_id, user_id, amount):
+    data = load_currency()
+    guild_id = str(guild_id)
+    user_id = str(user_id)
+
+    if guild_id not in data or user_id not in data[guild_id] or data[guild_id][user_id] < amount:
+        return False  # Not enough money
+
+    data[guild_id][user_id] -= amount
+    save_currency(data)
+    return True
+
 def load_cache():
     """Load AI response cache from a JSON file"""
     if os.path.exists(CACHE_FILE):
@@ -44,6 +88,36 @@ def save_postcards(postcards):
     """Save postcards data to a JSON file"""
     with open(POSTCARD_FILE, "w") as file:
         json.dump(postcards, file)
+
+def read_user_data():
+    try:
+        with open('user_data.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+# Function to save user data to the JSON file
+def save_user_data(data):
+    with open('user_data.json', 'w') as f:
+        json.dump(data, f, indent=4)
+
+# Function to update XP and level for a user
+def update_xp(user_id, xp_earned):
+    data = read_user_data()
+
+    if user_id not in data:
+        data[user_id] = {"xp": 0, "level": 1}
+
+    data[user_id]["xp"] += xp_earned
+
+    # Check if the user leveled up
+    xp_to_next_level = data[user_id]["level"] * 100  # Level up at 100 XP per level
+    if data[user_id]["xp"] >= xp_to_next_level:
+        data[user_id]["level"] += 1
+        data[user_id]["xp"] = 0  # Reset XP after leveling up
+
+
+    save_user_data(data)
 
 # Load the cache when the bot starts
 response_cache = load_cache()
@@ -162,6 +236,8 @@ def get_cat():
     if response.status_code == 200:
         return response.json()[0]['url']
 
+
+
 @bot.event
 async def on_member_join(member):
     for guild in bot.guilds:
@@ -176,15 +252,6 @@ async def on_member_join(member):
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}!')
-    # Iterate through all the guilds (servers) the bot is in
-    for guild in bot.guilds:
-        # Try to find the first available text channel in the guild
-        channel = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
-
-        if channel:
-            await channel.send("h")  # Sends the message to the first available channel
-        else:
-            print(f"No text channels where the bot can send messages in guild '{guild.name}'!")
 
 
 @bot.command()
@@ -368,11 +435,121 @@ async def openpostcard(ctx):
         await ctx.message.reply(response)
 
         del postcard_storage[ctx.author.id]
-    
+
         # Save the updated postcards to the JSON file after deletion
         save_postcards(postcard_storage)
     else:
         await ctx.send("❌ You don’t have any postcards to open!")
+
+@bot.command()
+async def balance(ctx):
+    guild_id = ctx.guild.id
+    user_id = ctx.author.id
+    money = get_balance(guild_id, user_id)
+    await ctx.send(f"💰 {ctx.author.name}, you have **{money} miles** in this server.")
+
+# 💸 Command: Give money to another user
+@bot.command()
+async def give(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("Please enter a valid amount.")
+        return
+
+    guild_id = ctx.guild.id
+    user_id = ctx.author.id
+    target_id = member.id
+
+    if remove_money(guild_id, user_id, amount):
+        add_money(guild_id, target_id, amount)
+        await ctx.send(f"✅ {ctx.author.name} gave {amount} miles to {member.name}.")
+    else:
+        await ctx.send("❌ You don’t have enough miles.")
+
+# 🏆 Command: Currency leaderboard (server-specific)
+@bot.command()
+async def mileboard(ctx):
+    guild_id = str(ctx.guild.id)
+    data = load_currency()
+
+    # If no currency data for the server, create an entry for it
+    if guild_id not in data:
+        data[guild_id] = {}
+        # Save the updated data with the server entry
+        save_currency(data)
+
+        await ctx.send("No currency data for this server yet. Creating a new entry.")
+
+    # Sort users by mileage (just miles)
+    sorted_users = sorted(data[guild_id].items(), key=lambda x: x[1]['miles'], reverse=True)
+
+    leaderboard_message = "🏆 **Most Well Traveled Users in This Server** 🏆\n\n"
+
+    for idx, (user_id, user_data) in enumerate(sorted_users[:10]):  # Top 10 users
+        user = await bot.fetch_user(int(user_id))
+        leaderboard_message += f"**{idx + 1}. {user.name}** - {user_data['miles']} miles\n"
+
+    await ctx.send(leaderboard_message)
+@bot.command()
+async def level(ctx):
+    data = read_user_data()
+    user_id = str(ctx.author.id)
+    if user_id not in data:
+        await ctx.send(f"{ctx.author.name}, you haven't earned any XP yet!")
+        return
+
+    user_data = data[user_id]
+    await ctx.send(f"{ctx.author.name}, you are level {user_data['level']} with {user_data['xp']} XP.")
+
+# Event when a user sends a message
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    # Give random XP between 10 and 20
+    xp_earned = random.randint(10, 20)
+
+    # Update XP and level for the user
+    update_xp(str(message.author.id), xp_earned)
+
+    await bot.process_commands(message)  # Allows commands to work even with on_message
+
+@bot.command()
+async def flight(ctx):
+    user_id = str(ctx.author.id)
+    guild_id = str(ctx.guild.id)
+
+    # Load currency data
+    try:
+        with open("currency.json", "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = {}
+
+    # Ensure user exists in the system
+    if guild_id not in data:
+        data[guild_id] = {}
+    if user_id not in data[guild_id]:
+        data[guild_id][user_id] = {"miles": 0, "last_flight": 0}
+
+    # Check if 24 hours have passed since the last flight
+    current_time = time.time()
+    if current_time - data[guild_id][user_id]["last_flight"] < 86400:
+        time_left = 86400 - (current_time - data[guild_id][user_id]["last_flight"])
+        hours_left = int(time_left // 3600)
+        minutes_left = int((time_left % 3600) // 60)
+        await ctx.send(f"{ctx.author.mention}, you can only take a flight once every 24 hours. Please wait {hours_left} hours and {minutes_left} minutes before your next flight.")
+        return
+
+    # Give 500 miles and update last flight time
+    data[guild_id][user_id]["miles"] += 500
+    data[guild_id][user_id]["last_flight"] = current_time
+
+    # Save updated data
+    with open("currency.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+    await ctx.send(f"✈️ {ctx.author.mention}, you took a flight and earned **500 miles**! Come back in 24 hours for another trip.")
 
 
 bot.run(os.getenv('DISCORD_TOKEN'))
